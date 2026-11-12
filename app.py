@@ -5,15 +5,19 @@ import os
 import tempfile
 import urllib.parse
 import time
+import requests
+from PIL import Image
+from io import BytesIO
+from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
 st.set_page_config(
-    page_title="TGM Pro Multi-Image Studio",
+    page_title="TGM Pro Auto-Video Studio",
     page_icon="🎬",
     layout="centered"
 )
 
-st.title("🎬 TGM Multi-Scene AI Media Generator")
-st.markdown("Yahan aap multiple promotional images aur voiceover script generate kar sakte hain. *(Note: Free server limit ki wajah se har image ke beech 45 seconds ka delay rahega taaki error na aaye)*")
+st.title("🎬 TGM Complete AI Video Studio")
+st.markdown("Images aur Voiceover ko jod kar automatic **MP4 Promotional Video** banayein!")
 
 # Initialize Session State for image prompts
 if "image_prompts" not in st.session_state:
@@ -24,26 +28,26 @@ if "image_prompts" not in st.session_state:
     ]
 
 with st.form("multi_media_form"):
-    st.subheader("🖼️ Image Prompts (Scenes)")
+    st.subheader("🖼️ Scene Prompts")
     
     updated_prompts = []
     for i, prompt_text in enumerate(st.session_state.image_prompts):
-        p = st.text_area(f"Scene {i+1} Image Prompt:", value=prompt_text, height=75, key=f"prompt_{i}")
+        p = st.text_area(f"Scene {i+1} Prompt:", value=prompt_text, height=75, key=f"prompt_{i}")
         updated_prompts.append(p)
     
     st.session_state.image_prompts = updated_prompts
 
     col_add, col_clear = st.columns(2)
     with col_add:
-        add_btn = st.form_submit_button("➕ Add Another Image Prompt")
+        add_btn = st.form_submit_button("➕ Add Another Scene")
     with col_clear:
-        clear_btn = st.form_submit_button("🗑️ Reset Prompts")
+        clear_btn = st.form_submit_button("🗑️ Reset Scenes")
 
     st.markdown("---")
     st.subheader("🗣️ Voiceover Script & Settings")
     
     voice_text = st.text_area(
-        "Voiceover Script (Jo audio mein bolna hai):",
+        "Voiceover Script (Jo video mein bolna hai):",
         value="Kya aapka business abhi tak online nahi hai? Aaj hi banwayein ek professional website, woh bhi sirf nau sau ninaanve rupaye mein!",
         height=100
     )
@@ -62,7 +66,7 @@ with st.form("multi_media_form"):
     with col2:
         seed_val = st.number_input("Random Seed:", value=123, step=1)
 
-    submitted = st.form_submit_button("🚀 Generate All Images & Voiceover")
+    submitted = st.form_submit_button("🚀 Generate Complete MP4 Video")
 
 if add_btn:
     st.session_state.image_prompts.append("Describe your next scene here...")
@@ -77,14 +81,17 @@ async def generate_natural_audio(text, voice_name, output_file):
     await communicate.save(output_file)
 
 if submitted and not add_btn and not clear_btn:
-    if not voice_text.strip():
-        st.warning("Kripya voiceover script zaroor bharein!")
+    valid_prompts = [p.strip() for p in st.session_state.image_prompts if p.strip()]
+    
+    if not voice_text.strip() or not valid_prompts:
+        st.warning("Kripya kam se kam ek image prompt aur voiceover script zaroor bharein!")
     else:
         progress_text = st.empty()
+        temp_image_paths = []
         
         try:
             # 1. Generate Voiceover Audio First
-            progress_text.text("🎙️ Voiceover audio generate ho raha hai...")
+            progress_text.text("🎙️ Step 1/3: Voiceover audio generate ho raha hai...")
             voice_mapping = {
                 "Swara (Hindi - Female, Natural & Warm)": "hi-IN-SwaraNeural",
                 "Madhur (Hindi - Male, Deep & Professional)": "hi-IN-MadhurNeural",
@@ -93,48 +100,83 @@ if submitted and not add_btn and not clear_btn:
             }
             selected_voice = voice_mapping.get(voice_option, "hi-IN-SwaraNeural")
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
-                temp_audio_path = tmp_file.name
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio:
+                temp_audio_path = tmp_audio.name
 
             asyncio.run(generate_natural_audio(voice_text, selected_voice, temp_audio_path))
 
-            # 2. Generate Images one by one with strict 45 seconds gap
-            st.success("🎉 Voiceover tayar hai! Ab images generate ho rahi hain (Server ki strict limit ki wajah se har image ke baad 45 seconds ka gap liya jayega)...")
-            
-            st.markdown("### 🖼️ Generated Scenes (Images):")
-            for idx, prompt in enumerate(st.session_state.image_prompts):
-                if prompt.strip():
-                    if idx > 0:
-                        # 45 seconds wait to strictly respect the new server limit
-                        for remaining in range(45, 0, -1):
-                            progress_text.text(f"⏳ Server rate-limit cooldown: Agli image {remaining} seconds mein banegi...")
-                            time.sleep(1)
+            # 2. Download & Save Each Image Locally
+            for idx, prompt in enumerate(valid_prompts):
+                if idx > 0:
+                    for remaining in range(45, 0, -1):
+                        progress_text.text(f"⏳ Server limit cooldown: Scene {idx+1} ke liye {remaining} seconds bache hain...")
+                        time.sleep(1)
+                
+                progress_text.text(f"🎨 Step 2/3: Scene {idx+1}/{len(valid_prompts)} download ho raha hai...")
+                
+                refined_prompt = prompt + ", raw photo, hyper-detailed skin texture, DSLR, Fujifilm XT3, no painting, no cartoon"
+                encoded_prompt = urllib.parse.quote(refined_prompt)
+                image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1920&seed={seed_val + idx}&model=flux&nologo=true&private=true"
+                
+                response = requests.get(image_url, timeout=60)
+                if response.status_code == 200:
+                    img = Image.open(BytesIO(response.content)).convert("RGB")
+                    # Ensure uniform resolution (1080x1920) for clean video merging
+                    img = img.resize((1080, 1920), Image.Resampling.LANCZOS)
                     
-                    progress_text.text(f"🎨 Scene {idx+1} generate ho raha hai...")
-                    
-                    refined_prompt = prompt + ", raw photo, hyper-detailed skin texture, DSLR, Fujifilm XT3, no painting, no cartoon"
-                    encoded_prompt = urllib.parse.quote(refined_prompt)
-                    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1920&seed={seed_val + idx}&model=flux&nologo=true&private=true"
-                    
-                    st.markdown(f"**Scene {idx+1}:** *{prompt}*")
-                    st.image(image_url, caption=f"Scene {idx+1} Generated Image", use_container_width=True)
-                    st.markdown("---")
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_img:
+                        img.save(tmp_img.name, format="JPEG", quality=95)
+                        temp_image_paths.append(tmp_img.name)
+                else:
+                    st.error(f"Scene {idx+1} download fail ho gaya (Status: {response.status_code}).")
 
-            progress_text.text("✅ Sabhi images aur audio successfully ban gaye hain!")
-
-            # Display Audio
-            st.markdown("### 🔊 Complete Voiceover Audio:")
-            st.audio(temp_audio_path, format="audio/mp3")
-
-            with open(temp_audio_path, "rb") as f:
-                audio_bytes = f.read()
-
-            st.download_button(
-                label="📥 Download Full Voiceover Audio (.mp3)",
-                data=audio_bytes,
-                file_name="tgm_complete_voiceover.mp3",
-                mime="audio/mp3"
-            )
+            if not temp_image_paths:
+                st.error("Koi bhi image download nahi ho payi, isliye video nahi ban sakti.")
+            else:
+                # 3. Merge Images & Audio into Final MP4 Video
+                progress_text.text("🎬 Step 3/3: Saari scenes aur audio ko jod kar MP4 video render ho rahi hai...")
+                
+                audio_clip = AudioFileClip(temp_audio_path)
+                total_duration = audio_clip.duration
+                duration_per_image = total_duration / len(temp_image_paths)
+                
+                clips = [ImageClip(img_path).set_duration(duration_per_image) for img_path in temp_image_paths]
+                final_video = concatenate_videoclips(clips, method="compose")
+                final_video = final_video.set_audio(audio_clip)
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
+                    final_video_path = tmp_vid.name
+                
+                # Render MP4 file
+                final_video.write_videofile(
+                    final_video_path,
+                    fps=24,
+                    codec="libx264",
+                    audio_codec="aac",
+                    preset="ultrafast",
+                    logger=None
+                )
+                
+                # Close clips to free memory
+                audio_clip.close()
+                final_video.close()
+                
+                progress_text.text("✅ Aapki Complete Promotional Video Tayar Hai!")
+                st.success("🎉 Badhai ho! Aapki final MP4 video successfully render ho gayi hai.")
+                
+                # Display Final Video
+                st.markdown("### 🎬 Final Promotional Video:")
+                st.video(final_video_path)
+                
+                with open(final_video_path, "rb") as vid_file:
+                    video_bytes = vid_file.read()
+                
+                st.download_button(
+                    label="📥 Download Final Promotional Video (.mp4)",
+                    data=video_bytes,
+                    file_name="delhi_ncr_web_design_promo.mp4",
+                    mime="video/mp4"
+                )
 
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Video banane mein error aaya: {e}")
