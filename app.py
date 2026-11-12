@@ -1,48 +1,67 @@
 import streamlit as st
-import time
+from gradio_client import Client
+import os
 
-# Page Configuration
 st.set_page_config(
-    page_title="Delhi NCR Web Design - Video Generator",
+    page_title="TGM Real AI Video Studio",
     page_icon="🎬",
     layout="centered"
 )
 
-st.title("🎬 Delhi NCR Web Design - AI Video Studio")
-st.markdown("Aap apna custom promotional video prompt daalein aur video generate karein!")
+st.title("🎬 TGM Real AI Video Generator")
+st.markdown("Text prompt daalein aur **bilkul asli AI video** free mein generate karein!")
 
-# Default Prompt jo aapne diya tha
-default_prompt = (
-    "Create a premium 35-second vertical (9:16) promotional video for Delhi NCR Web Design. "
-    "Show Indian shopkeepers, restaurant and salon owners discovering the benefits of having a professional website. "
-    "Display stunning website designs on laptops and smartphones with blue-white-black branding and cinematic transitions."
-)
-
-# User Input Form
-with st.form("video_form"):
-    user_prompt = st.text_area("Video Prompt:", value=default_prompt, height=150)
-    aspect_ratio = st.selectbox("Aspect Ratio:", ["9:16 (Vertical / Reels)", "16:9 (Landscape)"])
+with st.form("real_video_form"):
+    prompt = st.text_area(
+        "Apna Video Prompt Likhein (English mein behtar result aata hai):",
+        placeholder="e.g., Cinematic shot of an Indian shopkeeper smiling while looking at a modern website on a laptop, warm lighting, 4k",
+        height=120
+    )
     
-    submitted = st.form_submit_button("🚀 Generate Video")
+    seed = st.number_input("Seed (Alag variations ke liye number badlein):", value=42, step=1)
+    submitted = st.form_submit_button("🚀 Generate Real AI Video")
 
 if submitted:
-    if not user_prompt.strip():
-        st.warning("Kripya koi prompt darj karein!")
+    if not prompt.strip():
+        st.warning("Kripya pehle koi prompt likhein!")
     else:
-        with st.spinner("Video render ho raha hai... Kripya kuch samay pratiksha karein (Yeh kuch second le sakta hai)..."):
-            # Simulation / API integration placeholder
-            time.sleep(4)
-            
-            st.success("🎉 Aapka video successfully generate ho gaya hai!")
-            
-            # Simulated Video Result Display
-            st.markdown("### 📥 Download Link:")
-            st.info("Aapka 9:16 vertical promotional video tayar hai.")
-            
-            # Download button simulation
-            st.download_button(
-                label="📥 Download Video (.mp4)",
-                data=b"Mock video binary data for Delhi NCR Web Design",
-                file_name="delhi_ncr_web_design_promo.mp4",
-                mime="video/mp4"
-            )
+        with st.spinner("Free AI Server se video generate ho rahi hai... Ismein 1 se 2 minute lag sakte hain, kripya intezaar karein..."):
+            try:
+                # Public Hugging Face Space se connect karna (Bina API key ke)
+                client = Client("damo-vilab/modelscope-text-to-video-synthesis")
+                
+                # Real AI Video Generate karna
+                video_path = client.predict(
+                    prompt,       # Text prompt
+                    int(seed),    # Seed value
+                    16,           # Number of frames
+                    25,           # Inference steps
+                    api_name="/predict"
+                )
+                
+                # Agar output tuple ya dict mein aaye toh file path nikalna
+                if isinstance(video_path, (list, tuple)):
+                    video_path = video_path[0]
+                elif isinstance(video_path, dict):
+                    video_path = video_path.get("video", "")
+
+                if video_path and os.path.exists(video_path):
+                    st.success("🎉 Aapki asli AI video tayar hai!")
+                    
+                    # Browser mein video play karna
+                    st.video(video_path)
+                    
+                    # Real MP4 file download ke liye dena
+                    with open(video_path, "rb") as file:
+                        st.download_button(
+                            label="📥 Download Real Video (.mp4)",
+                            data=file,
+                            file_name="tgm_ai_video.mp4",
+                            mime="video/mp4"
+                        )
+                else:
+                    st.error("Server busy hone ki wajah se video nahi ban paayi. Kripya thodi der baad dobara try karein.")
+                    
+            except Exception as e:
+                st.error(f"Free AI server abhi overload hai ya error aaya hai: {e}")
+                st.info("Tip: Free public servers par traffic zyada hone par kabhi-kabhi error aata hai, 1 minute baad 'Generate' par dobara click karein.")
